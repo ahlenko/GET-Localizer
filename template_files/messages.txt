@@ -1,0 +1,14 @@
+import 'package:get/get_navigation/src/root/internacionalization.dart';
+//IMPORTS
+
+class Messages extends Translations {
+  //INITIALIZATION
+
+  @override
+  Map<String, Map<String, String>> get keys {
+    Map<String, Map<String, String>> combinedKeys = {
+      //IMPLEMENT
+    };
+    return combinedKeys;
+  }
+}

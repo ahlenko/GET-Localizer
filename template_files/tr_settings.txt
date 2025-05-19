@@ -1,0 +1,20 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:syncfusion_localizations/syncfusion_localizations.dart';
+
+mixin TrSettings {
+  static const locale = Locale('en');
+  static const fallbackLocale = Locale('en');
+  static List<Locale> supportedLocales = List.of([
+    //SUPPORTED_LOCALES
+  ]);
+  static final languages = [
+    //LOCALES
+  ];
+  static const Iterable<LocalizationsDelegate> localizationsDelegates = [
+    GlobalMaterialLocalizations.delegate,
+    GlobalWidgetsLocalizations.delegate,
+    GlobalCupertinoLocalizations.delegate,
+    SfGlobalLocalizations.delegate,
+  ];
+}
