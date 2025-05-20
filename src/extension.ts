@@ -23,6 +23,86 @@ export function activate(context: vscode.ExtensionContext) {
 		const credentials = loadGoogleServiceAccountCredentials();
 		if (!credentials) return;
 
+		async function uploadTranslationsToSheet() {
+			try {
+				const serviceAccountAuth = new JWT({
+					email: credentials.client_email,
+					key: credentials.private_key,
+					scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+				});
+				const doc = new GoogleSpreadsheet(credentials.table_key, serviceAccountAuth);
+				await doc.loadInfo();
+				const sheet = doc.sheetsByTitle['localization'];
+
+				const workspaceFolders = vscode.workspace.workspaceFolders;
+				if (!workspaceFolders || workspaceFolders.length === 0) {
+					vscode.window.showErrorMessage('No workspace open');
+					return;
+				}
+				const rootPath = workspaceFolders[0].uri.fsPath;
+				const messagesDir = path.join(rootPath, 'lib', 'app', 'translations', 'messages');
+				const tableHeader = generateSheetHeaderFromLocales(messagesDir);
+
+				await sheet.clear();
+
+				await sheet.setHeaderRow(tableHeader[0]);
+				await sheet.addRow(
+					Object.fromEntries(
+						tableHeader[0].map((header, i) => [header, tableHeader[1][i] || ''])
+					)
+				);
+
+				const headerRow = sheet.headerValues;
+				const locales = headerRow.slice(1).map(h => {
+					const match = h.match(/\(([^)]+)\)/);
+					return match ? match[1] : null;
+				}).filter(Boolean) as string[];
+
+				const translationsByLocale: Record<string, Record<string, string>> = {};
+
+				for (const locale of locales) {
+					const filePath = path.join(messagesDir, `messages_${locale}.dart`);
+					if (!fs.existsSync(filePath)) continue;
+
+					const content = fs.readFileSync(filePath, 'utf-8');
+
+					const match = content.match(/['"]?([a-zA-Z0-9_]+)['"]:\s+'''(.*?)'''/gs);
+					if (!match) continue;
+
+					translationsByLocale[locale] = {};
+					for (const pair of match) {
+						const keyMatch = pair.match(/['"]?([a-zA-Z0-9_]+)['"]:\s+'''(.*?)'''/s);
+						if (keyMatch) {
+							const [, key, value] = keyMatch;
+							translationsByLocale[locale][key] = value;
+						}
+					}
+				}
+
+				const allKeys = new Set<string>();
+				for (const locale of locales) {
+					Object.keys(translationsByLocale[locale] || {}).forEach(key => allKeys.add(key));
+				}
+
+				const rowsToAdd: Record<string, string>[] = [];
+				for (const key of Array.from(allKeys)) {
+					const row: Record<string, string> = {};
+					row[headerRow[0]] = key;
+					locales.forEach((locale, i) => {
+						const colName = headerRow[i + 1];
+						row[colName] = translationsByLocale[locale]?.[key] ?? '';
+					});
+					rowsToAdd.push(row);
+				}
+
+				await sheet.addRows(rowsToAdd);
+				vscode.window.showInformationMessage(`Uploaded ${rowsToAdd.length} translation keys.`);
+
+			} catch (err) {
+				vscode.window.showErrorMessage(`Failed to upload translations: ${err}`);
+			}
+		}
+		uploadTranslationsToSheet();
 	});
 
 	const disposableFetch = vscode.commands.registerCommand('flutterI18nHelper.fetchCloudTranslations', () => {
@@ -208,6 +288,34 @@ mixin TrSettings {
 	});
 
 	context.subscriptions.push(disposableInit, disposableUpload, disposableFetch, disposableLocale);
+}
+
+function generateSheetHeaderFromLocales(messagesDir: string): string[][] {
+	const files = fs.readdirSync(messagesDir);
+	const localeFiles = files
+		.filter(f => f.startsWith('messages_') && f.endsWith('.dart'));
+
+	const allLocales = localeFiles
+		.map(f => f.replace('messages_', '').replace('.dart', ''));
+
+	const priorityLocales = ['en', 'uk', 'ru'];
+	const orderedLocales = [
+		...priorityLocales.filter(loc => allLocales.includes(loc)),
+		...allLocales.filter(loc => !priorityLocales.includes(loc)).sort()
+	];
+
+	const firstRow = ['variable_name', ...orderedLocales.map(loc => {
+		const display = new Intl.DisplayNames(['en'], { type: 'language' });
+		return `${display.of(loc)} (${loc})`;
+	})];
+
+	const secondRow = ['translator', 'Hello'];
+	for (const loc of orderedLocales) {
+		if (loc === 'en') continue;
+		secondRow.push(`=PROPER(GOOGLETRANSLATE($B2; "en"; "${loc}"))`);
+	}
+
+	return [firstRow, secondRow];
 }
 
 function loadGoogleServiceAccountCredentials(): any | null {
