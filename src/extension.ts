@@ -179,7 +179,13 @@ export function activate(context: vscode.ExtensionContext) {
 					let buffer = '';
 					buffer += `class Strings {\n`;
 
+					let firstRow = true;
+
 					for (const [key, value] of Object.entries(rows)) {
+						if (firstRow) {
+							firstRow = false;
+							continue;
+						}
 						const rowObj = value.toObject();
 						const keys = Object.keys(rowObj);
 						const key = rowObj[keys[0]];
@@ -461,7 +467,6 @@ class _MyAppAppState extends State<App> {
 
 	vscode.window.showInformationMessage('Translation structure created.');
 
-	// Add dependencies to pubspec.yaml after flutter sdk block
 	const pubspecPath = path.join(rootPath, 'pubspec.yaml');
 	if (fs.existsSync(pubspecPath)) {
 		let pubspecContent = fs.readFileSync(pubspecPath, 'utf-8');
