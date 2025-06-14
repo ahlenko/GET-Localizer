@@ -1,4 +1,4 @@
-# flutter-i18n-helper README
+# GET Localizer README
 
 VS Code extension that helps translate string literals in Flutter projects using the `get` package.
 
