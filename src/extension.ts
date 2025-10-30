@@ -86,11 +86,44 @@ export function activate(context: vscode.ExtensionContext) {
 				);
 
 				await vscode.workspace.applyEdit(edit);
+				await updateTranslationFiles(translationKey, text);
 				vscode.window.showInformationMessage(
 					`Додано переклад для: "${text}" з ключем "${translationKey}"`
 				);
 			})
 	);
+
+	async function updateTranslationFiles(key: string, value: string) {
+		const projectRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+		if (!projectRoot) return;
+
+		const stringsPath = path.join(projectRoot, 'lib/app/translations/tr_strings.dart');
+		const messagesDir = path.join(projectRoot, 'lib/app/translations/messages');
+
+		let stringsContent = fs.readFileSync(stringsPath, 'utf8');
+		if (!stringsContent.includes(`static String ${key} = '${key}';`)) {
+			const insertIndex = stringsContent.lastIndexOf('}');
+			const newLine = `  static const String ${key} = '${key}';\n`;
+			stringsContent = stringsContent.slice(0, insertIndex) + newLine + stringsContent.slice(insertIndex);
+			fs.writeFileSync(stringsPath, stringsContent);
+		}
+
+		const files = fs.readdirSync(messagesDir).filter(file => /^messages_.*\.dart$/.test(file));
+		for (const file of files) {
+			const filePath = path.join(messagesDir, file);
+			let content = fs.readFileSync(filePath, 'utf8');
+
+			if (!content.includes(`Strings.${key}:`)) {
+				const match = content.match(/'[^']+':\s*{([\s\S]*?)}/);
+				if (match) {
+					const insertIndex = match.index! + match[0].length - 1;
+					const newEntry = `  Strings.${key}: '''${value}''',\n        `;
+					content = content.slice(0, insertIndex) + newEntry + content.slice(insertIndex);
+					fs.writeFileSync(filePath, content);
+				}
+			}
+		}
+	}
 
 	function highliteStrings(document: vscode.TextDocument) {
 		console.log('CHECK:', `Check file: "${document.fileName}"`);
@@ -197,14 +230,15 @@ export function activate(context: vscode.ExtensionContext) {
 
 					const content = fs.readFileSync(filePath, 'utf-8');
 
-					const match = content.match(/['"]?([a-zA-Z0-9_]+)['"]:\s+'''(.*?)'''/gs);
+					const match = content.match(/Strings\.([a-zA-Z0-9_]+):\s+("""|''')(.*?)\2/gs);
 					if (!match) continue;
 
 					translationsByLocale[locale] = {};
 					for (const pair of match) {
-						const keyMatch = pair.match(/['"]?([a-zA-Z0-9_]+)['"]:\s+'''(.*?)'''/s);
+						const keyMatch = pair.match(/Strings\.([a-zA-Z0-9_]+):\s+("""|''')(.*?)\2/s);
 						if (keyMatch) {
-							const [, key, value] = keyMatch;
+							const key = keyMatch[1];
+							const value = keyMatch[3];
 							translationsByLocale[locale][key] = value;
 						}
 					}
@@ -288,14 +322,15 @@ export function activate(context: vscode.ExtensionContext) {
 				function generateDartContent(translations: Record<string, string>, locale: string): string {
 					const capitalize = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
 					let buffer = '';
-					buffer += "import 'package:get/get_navigation/src/root/internacionalization.dart';\n\n";
+					buffer += "import 'package:get/get_navigation/src/root/internacionalization.dart';\n";
+					buffer += `import 'package:${credentials.project_name}/app/translations/tr_strings.dart';\n\n`;
 					buffer += `class Messages${capitalize(locale)} extends Translations {\n`;
 					buffer += '  @override\n';
 					buffer += '  Map<String, Map<String, String>> get keys => {\n';
 					buffer += `    '${locale}_${locale.toUpperCase()}': {\n`;
 
 					for (const [key, value] of Object.entries(translations)) {
-						buffer += `      '${key}': '''${value}''',\n`;
+						buffer += `      Strings.${key}: '''${value}''',\n`;
 					}
 
 					buffer += '    },\n';
@@ -321,7 +356,7 @@ export function activate(context: vscode.ExtensionContext) {
 						const keys = Object.keys(rowObj);
 						const key = rowObj[keys[0]];
 						const data = rowObj[keys[0]] || '';
-						buffer += `	static String ${data} = '${data}';\n`;
+						buffer += `	static const String ${data} = '${data}';\n`;
 					}
 					buffer += '}\n';
 
@@ -353,7 +388,7 @@ export function activate(context: vscode.ExtensionContext) {
 					const filePath = path.join(messagesDir, `messages_${locale}.dart`);
 					fs.writeFileSync(filePath, content, 'utf-8');
 
-					bufferIMPORTS += `import 'package:${projectName}/app/translations/messages/messages_${locale.charAt(0).toUpperCase() + locale.slice(1)}.dart';`;
+					bufferIMPORTS += `import 'package:${credentials.project_name}/app/translations/messages/messages_${locale.charAt(0).toUpperCase() + locale.slice(1)}.dart';`;
 					bufferINITIALIZATION += `final Messages${locale.charAt(0).toUpperCase() + locale.slice(1)} _messages${locale.charAt(0).toUpperCase() + locale.slice(1)} = Messages${locale.charAt(0).toUpperCase() + locale.slice(1)}();\n`;
 					bufferIMPLEMENT += `..._messages${locale.charAt(0).toUpperCase() + locale.slice(1)}.keys, \n`;
 					bufferSUPPORTED_LOCALES += `const Locale('${locale}'), \n	`;
